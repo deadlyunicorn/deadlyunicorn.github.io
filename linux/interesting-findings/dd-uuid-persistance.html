@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Understanding why dd preserves filesystem UUIDs and why this matters for Linux system recovery and partition management.">
+    <title>Why dd Preserves Filesystem UUIDs (And Why That Matters)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 2.2em;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.6em;
+        }
+        
+        h3 {
+            color: #546e7a;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            font-size: 1.3em;
+        }
+        
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        
+        .tldr {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px 20px;
+            margin-bottom: 30px;
+            border-radius: 4px;
+        }
+        
+        .tldr h2 {
+            margin-top: 0;
+            color: #1976d2;
+            font-size: 1.3em;
+        }
+        
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            color: #c7254e;
+        }
+        
+        pre {
+            background-color: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+            border-left: 4px solid #61afef;
+        }
+        
+        pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+            font-size: 0.95em;
+        }
+        
+        ul {
+            margin-left: 30px;
+            margin-bottom: 15px;
+        }
+        
+        li {
+            margin-bottom: 8px;
+        }
+        
+        .checkmark {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        .section {
+            margin-bottom: 25px;
+        }
+        
+        .highlight-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .conclusion {
+            background-color: #f0f7ff;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 30px;
+            border: 1px solid #b3d9ff;
+        }
+        
+        .conclusion h2 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            h2 {
+                font-size: 1.4em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Why dd Preserves Filesystem UUIDs (And Why That Matters)</h1>
+        
+        <div class="tldr">
+            <h2>TL;DR</h2>
+            <p>When you use <code>dd</code> to copy a partition, the filesystem UUID stays the same. This is because UUIDs are stored inside the filesystem itself, not in the partition table.</p>
+        </div>
+        
+        <div class="section">
+            <h2>The Discovery</h2>
+            <p>While moving a Linux boot partition on an NVMe drive, I expected the UUID to change after using <code>dd</code> to backup and restore the partition. To my surprise, it didn't! This turned out to be a feature, not a bug.</p>
+        </div>
+        
+        <div class="section">
+            <h2>Understanding the Why</h2>
+            
+            <h3>Where UUIDs Actually Live</h3>
+            <p>A filesystem UUID is stored within the filesystem metadata, not in the partition table. When you create a filesystem with <code>mkfs.ext4</code> or similar commands, the UUID is written into the filesystem's superblock.</p>
+            
+            <h3>What dd Actually Does</h3>
+            <p>The <code>dd</code> command performs a bit-for-bit copy of data. When you run:</p>
+            <pre><code>dd if=/dev/nvme0n1p5 of=/backup.img bs=4M</code></pre>
+            <p>You're copying:</p>
+            <ul>
+                <li>Every single byte of the filesystem</li>
+                <li>All file contents and metadata</li>
+                <li>The filesystem superblock (which contains the UUID)</li>
+                <li>Directory structures, permissions, everything</li>
+            </ul>
+            
+            <h3>What Changes vs. What Doesn't</h3>
+            <p><strong>Changes when moving a partition:</strong></p>
+            <ul>
+                <li>Physical location on the disk</li>
+                <li>Partition number (potentially)</li>
+                <li>Partition table entries</li>
+            </ul>
+            
+            <p><strong>Doesn't change with dd:</strong></p>
+            <ul>
+                <li>Filesystem UUID <span class="checkmark">✓</span></li>
+                <li>File contents <span class="checkmark">✓</span></li>
+                <li>File permissions and ownership <span class="checkmark">✓</span></li>
+                <li>Filesystem structure <span class="checkmark">✓</span></li>
+            </ul>
+        </div>
+        
+        <div class="section">
+            <h2>Why This Matters</h2>
+            
+            <h3>1. Simplified System Recovery</h3>
+            <p>When you restore a partition with <code>dd</code>, your <code>/etc/fstab</code> still works! Modern Linux systems use UUIDs to mount filesystems:</p>
+            <pre><code># /etc/fstab entry
+UUID=a1b2c3d4-e5f6-... /boot ext4 defaults 0 2</code></pre>
+            <p>Since the UUID is preserved, this entry remains valid after restoration.</p>
+            
+            <h3>2. Moving Partitions Without Breaking Your System</h3>
+            <p>You can:</p>
+            <ul>
+                <li>Backup a partition with <code>dd</code></li>
+                <li>Delete and recreate it in a new location</li>
+                <li>Restore with <code>dd</code></li>
+                <li>Boot successfully without editing fstab</li>
+            </ul>
+            <p>The only thing you need to update is the bootloader configuration (for boot partitions), since the physical location changed.</p>
+            
+            <h3>3. Partition Cloning</h3>
+            <p>If you want to clone a partition to another disk but need a different UUID (to avoid conflicts), you must explicitly change it:</p>
+            <pre><code># After cloning with dd, generate a new UUID
+sudo tune2fs -U random /dev/sdX</code></pre>
+        </div>
+        
+        <div class="section">
+            <h2>Practical Example</h2>
+            <pre><code># Backup boot partition
+sudo dd if=/dev/nvme0n1p5 of=/media/usb/boot_backup.img bs=4M status=progress
+
+# After recreating partition in new location...
+# Restore boot partition
+sudo dd if=/media/usb/boot_backup.img of=/dev/nvme0n1p5 bs=4M status=progress
+
+# Check UUID - it's the same!
+sudo blkid /dev/nvme0n1p5
+# UUID="12345678-90ab-cdef-1234-567890abcdef"</code></pre>
+        </div>
+        
+        <div class="highlight-box">
+            <h2>When UUIDs DO Change</h2>
+            <p><strong>UUIDs change when you:</strong></p>
+            <ul>
+                <li>Create a new filesystem with <code>mkfs.*</code></li>
+                <li>Explicitly change it with <code>tune2fs -U</code> (ext2/3/4)</li>
+                <li>Use <code>xfs_admin -U</code> (XFS)</li>
+                <li>Copy files without preserving filesystem structure (like <code>rsync</code> or <code>cp</code>)</li>
+            </ul>
+        </div>
+        
+        <div class="conclusion">
+            <h2>Conclusion</h2>
+            <p>The <code>dd</code> command's bit-for-bit copying behavior means filesystem UUIDs are naturally preserved. This makes it an excellent tool for partition backup and restoration, especially when you want to maintain system configuration compatibility.</p>
+            <p>Understanding where UUIDs are stored (in the filesystem, not the partition table) helps demystify why some operations preserve them while others don't.</p>
+            <p><em>Have you discovered other surprising behaviors of common Linux tools? The devil (and the convenience) is often in these implementation details!</em></p>
+        </div>
+    </div>
+</body>
+</html>
